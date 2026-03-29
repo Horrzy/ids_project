@@ -1,12 +1,8 @@
--- ============================================================================
--- SQL skript (předělaný lekar.sql podle stylu z přednášek)
--- Téma: Ordinace praktického lékaře
--- Autor: Horrzy
--- ============================================================================
 
--- ================================
+-- Téma: Ordinace praktického lékaře
+-- Autor: Jan Raška (xraskaj00), Matěj Zaoral (xzaoram00)
+
 -- DROP TABLES AND SEQUENCES
--- ================================
 
 DROP TABLE externi_vysetreni CASCADE CONSTRAINTS;
 DROP TABLE predpisy CASCADE CONSTRAINTS;
@@ -31,9 +27,10 @@ DROP SEQUENCE seq_ockovani;
 DROP SEQUENCE seq_predpisy;
 DROP SEQUENCE seq_externi_vysetreni;
 
--- ================================
+
+
+
 -- CREATE SEQUENCES
--- ================================
 
 CREATE SEQUENCE seq_pacienti;
 CREATE SEQUENCE seq_navstevy;
@@ -45,9 +42,10 @@ CREATE SEQUENCE seq_ockovani;
 CREATE SEQUENCE seq_predpisy;
 CREATE SEQUENCE seq_externi_vysetreni;
 
--- ================================
+
+
+
 -- CREATE TABLES
--- ================================
 
 CREATE TABLE pojistovny (
    cislo_pojistovny  INTEGER,
@@ -70,6 +68,12 @@ CREATE TABLE pacienti_registrovani (
    cislo_pacienta    INTEGER,
    cislo_karty       INTEGER NOT NULL
 );
+
+-- Vysvětlení generalizace:
+-- Zvolili jsme metodu, kde pro každý podtyp vytváříme samostatnou tabulku.
+-- Tabulka 'pacienti' obsahuje společné atributy obou typů pacientů.
+-- Tabulka 'pacienti_registrovani' uchovává specifická data (číslo karty) a odkazuje na primární klíč v 'pacienti'.
+-- Akutní případy nevyžadují specifické atributy, jsou tedy reprezentovány pouze v základní tabulce.
 
 CREATE TABLE vykony (
    typ_vykonu        INTEGER,
@@ -105,6 +109,18 @@ CREATE TABLE navstevy (
    typ_prohlidky     INTEGER
 );
 
+-- Trigger pro automatické generování primárního klíče
+-- Pokud je v příkazu INSERT hodnota cislo_navstevy rovna NULL, trigger ji doplní ze sekvence.
+CREATE OR REPLACE TRIGGER trg_navstevy_pk
+BEFORE INSERT ON navstevy
+FOR EACH ROW
+BEGIN
+    IF :NEW.cislo_navstevy IS NULL THEN
+        :NEW.cislo_navstevy := seq_navstevy.NEXTVAL;
+    END IF;
+END;
+/
+
 CREATE TABLE navsteva_vykon (
    cislo_navstevy    INTEGER NOT NULL,
    typ_vykonu        INTEGER NOT NULL
@@ -135,35 +151,35 @@ CREATE TABLE externi_vysetreni (
    cislo_navstevy    INTEGER NOT NULL
 );
 
--- ================================
--- SEED DATABASE (Sample Data)
--- ================================
 
--- Pojišťovny (ID jsou zadána pevně)
+
+-- SEED DATABASE
+
+-- Pojišťovny
 INSERT INTO pojistovny ( cislo_pojistovny, nazev, adresa )
    VALUES ( 111, 'Všeobecná zdravotní pojišťovna', 'Orlická 2020/4, Praha 3' );
 INSERT INTO pojistovny ( cislo_pojistovny, nazev, adresa )
    VALUES ( 211, 'Zdravotní pojišťovna ministerstva vnitra ČR', 'Vinohradská 2577/178, Praha 3' );
 
--- Pacienti (Použití sekvence)
+-- Pacienti
 INSERT INTO pacienti ( cislo_pacienta, jmeno, prijmeni, rodne_cislo, telefon, datum_narozeni, adresa, cislo_pojistovny )
-   VALUES ( seq_pacienti.NEXTVAL, 'Karel', 'Novák', '800512/1234', '+420608123456', TO_DATE('1980-05-12','YYYY-MM-DD'), 'Brno, Údolní 5', 111 );
+   VALUES ( seq_pacienti.NEXTVAL, 'Karel', 'Novák', '800512/1234', '+420608123456', TO_DATE('1980-05-12','YYYY-MM-DD'), 'Brno, Hoblíkova 32', 111 );
 INSERT INTO pacienti ( cislo_pacienta, jmeno, prijmeni, rodne_cislo, telefon, datum_narozeni, adresa, cislo_pojistovny )
-   VALUES ( seq_pacienti.NEXTVAL, 'Jana', 'Světlá', '925821/5678', '+420721987654', TO_DATE('1992-08-21','YYYY-MM-DD'), 'Olomouc, Masarykova 10', 211 );
+   VALUES ( seq_pacienti.NEXTVAL, 'Jana', 'Nováková', '925821/5678', '+420721987654', TO_DATE('1992-08-21','YYYY-MM-DD'), 'Olomouc, Kmochova 17', 211 );
 
--- Registrovaní pacienti (Odkaz na pacienta s ID 1)
+-- Registrovaní pacienti
 INSERT INTO pacienti_registrovani ( cislo_pacienta, cislo_karty )
    VALUES ( 1, 10001 );
 
 -- Výkony
 INSERT INTO vykony ( typ_vykonu, nazev, popis )
-   VALUES ( seq_vykony.NEXTVAL, 'Odběr krve', 'Standardní odběr žilní krve' );
+   VALUES ( seq_vykony.NEXTVAL, 'Odběr krve', 'Standardní odběr' );
 INSERT INTO vykony ( typ_vykonu, nazev, popis )
-   VALUES ( seq_vykony.NEXTVAL, 'EKG', 'Elektrokardiografické vyšetření' );
+   VALUES ( seq_vykony.NEXTVAL, 'MRI', 'Magnetická rezonance' );
 
 -- Pravidelné prohlídky
 INSERT INTO pravidelne_prohlidky ( typ_prohlidky, nazev, popis, doba_frekvence )
-   VALUES ( seq_pravidelne_prohlidky.NEXTVAL, 'Preventivní prohlídka', 'Komplexní vyšetření celkového stavu', 24 );
+   VALUES ( seq_pravidelne_prohlidky.NEXTVAL, 'Preventivní prohlídka', 'Vyšetření celkového stavu', 24 );
 
 -- Typy očkování
 INSERT INTO typy_ockovani ( typ_ockovani_id, nazev, popis, doba_ucinnosti )
@@ -171,13 +187,13 @@ INSERT INTO typy_ockovani ( typ_ockovani_id, nazev, popis, doba_ucinnosti )
 
 -- Léky
 INSERT INTO leky ( cislo_leku, nazev, popis )
-   VALUES ( seq_leky.NEXTVAL, 'Paralen 500', 'Lék proti bolesti a horečce' );
+   VALUES ( seq_leky.NEXTVAL, 'Paralen', 'Lék proti bolesti' );
 
--- Návštěvy
+-- Návštěvy s automatickým generováním
 INSERT INTO navstevy ( cislo_navstevy, datum_a_cas, typ_navstevy, cislo_pacienta, typ_prohlidky )
-   VALUES ( seq_navstevy.NEXTVAL, TO_TIMESTAMP('2024-03-20 09:00:00','YYYY-MM-DD HH24:MI:SS'), 'planovana', 1, 1 );
+   VALUES ( NULL, TO_TIMESTAMP('2026-01-01 09:00:00','YYYY-MM-DD HH24:MI:SS'), 'planovana', 1, 1 );
 INSERT INTO navstevy ( cislo_navstevy, datum_a_cas, typ_navstevy, cislo_pacienta )
-   VALUES ( seq_navstevy.NEXTVAL, TO_TIMESTAMP('2024-03-25 10:30:00','YYYY-MM-DD HH24:MI:SS'), 'akutni', 2 );
+   VALUES ( seq_navstevy.NEXTVAL, TO_TIMESTAMP('2026-01-01 10:30:00','YYYY-MM-DD HH24:MI:SS'), 'akutni', 2 );
 
 -- Výkony během návštěvy
 INSERT INTO navsteva_vykon ( cislo_navstevy, typ_vykonu )
@@ -185,34 +201,32 @@ INSERT INTO navsteva_vykon ( cislo_navstevy, typ_vykonu )
 
 -- Očkování
 INSERT INTO ockovani ( id_ockovani, datum_ockovani, popis, cislo_pacienta, cislo_navstevy, typ_ockovani_id )
-   VALUES ( seq_ockovani.NEXTVAL, TO_DATE('2024-03-25','YYYY-MM-DD'), 'První dávka', 2, 2, 1 );
+   VALUES ( seq_ockovani.NEXTVAL, TO_DATE('2026-01-01','YYYY-MM-DD'), 'První dávka', 2, 2, 1 );
 
 -- Předpisy
 INSERT INTO predpisy ( cislo_predpisu, datum_vystaveni, davkovani, cislo_navstevy, cislo_leku )
-   VALUES ( seq_predpisy.NEXTVAL, TO_DATE('2024-03-20','YYYY-MM-DD'), '1 tableta po 6 hodinách', 1, 1 );
+   VALUES ( seq_predpisy.NEXTVAL, TO_DATE('2026-01-01','YYYY-MM-DD'), '1 tableta po 6 hodinách', 1, 1 );
 
 -- Externí vyšetření
 INSERT INTO externi_vysetreni ( id_ex_vysetreni, nazev, popis, pracoviste, cislo_navstevy )
-   VALUES ( seq_externi_vysetreni.NEXTVAL, 'RTG Srdce a plíce', 'Snímkování hrudníku', 'Fakultní nemocnice Brno', 1 );
+   VALUES ( seq_externi_vysetreni.NEXTVAL, 'RTG Srdce a plíce', 'Snímek hrudníku', 'Fakultní nemocnice Brno', 1 );
 
 COMMIT;
 
--- ================================
--- CONSTRAINTS (ALTER TABLE)
--- ================================
+-- CONSTRAINTS
 
 -- Primární klíče
 ALTER TABLE pojistovny ADD CONSTRAINT PK_pojistovny PRIMARY KEY (cislo_pojistovny);
-ALTER TABLE pacienti ADD CONSTRAINT PK_pacienti PRIMARY KEY (cislo_pacienta);
-ALTER TABLE pacienti_registrovani ADD CONSTRAINT PK_pacienti_registrovani PRIMARY KEY (cislo_pacienta);
-ALTER TABLE vykony ADD CONSTRAINT PK_vykony PRIMARY KEY (typ_vykonu);
-ALTER TABLE typy_ockovani ADD CONSTRAINT PK_typy_ockovani PRIMARY KEY (typ_ockovani_id);
-ALTER TABLE pravidelne_prohlidky ADD CONSTRAINT PK_pravidelne_prohlidky PRIMARY KEY (typ_prohlidky);
-ALTER TABLE leky ADD CONSTRAINT PK_leky PRIMARY KEY (cislo_leku);
-ALTER TABLE navstevy ADD CONSTRAINT PK_navstevy PRIMARY KEY (cislo_navstevy);
+ALTER TABLE pacienti ADD CONSTRAINT PK_cislo_pacienta PRIMARY KEY (cislo_pacienta);
+ALTER TABLE pacienti_registrovani ADD CONSTRAINT PK_cislo_reg_pacienta PRIMARY KEY (cislo_pacienta);
+ALTER TABLE vykony ADD CONSTRAINT PK_typ_vykonu PRIMARY KEY (typ_vykonu);
+ALTER TABLE typy_ockovani ADD CONSTRAINT PK_typ_ockovani_id PRIMARY KEY (typ_ockovani_id);
+ALTER TABLE pravidelne_prohlidky ADD CONSTRAINT PK_typ_prohlidky PRIMARY KEY (typ_prohlidky);
+ALTER TABLE leky ADD CONSTRAINT PK_cislo_leku PRIMARY KEY (cislo_leku);
+ALTER TABLE navstevy ADD CONSTRAINT PK_cislo_navstevy PRIMARY KEY (cislo_navstevy);
 ALTER TABLE navsteva_vykon ADD CONSTRAINT PK_navsteva_vykon PRIMARY KEY (cislo_navstevy, typ_vykonu);
-ALTER TABLE ockovani ADD CONSTRAINT PK_ockovani PRIMARY KEY (id_ockovani);
-ALTER TABLE predpisy ADD CONSTRAINT PK_predpisy PRIMARY KEY (cislo_predpisu);
+ALTER TABLE ockovani ADD CONSTRAINT PK_id_ockovani PRIMARY KEY (id_ockovani);
+ALTER TABLE predpisy ADD CONSTRAINT PK_cislo_predpisu PRIMARY KEY (cislo_predpisu);
 ALTER TABLE externi_vysetreni ADD CONSTRAINT PK_externi_vysetreni PRIMARY KEY (id_ex_vysetreni);
 
 -- Cizí klíče
@@ -229,7 +243,7 @@ ALTER TABLE predpisy ADD CONSTRAINT FK_predpisy_navstevy FOREIGN KEY (cislo_navs
 ALTER TABLE predpisy ADD CONSTRAINT FK_predpisy_leky FOREIGN KEY (cislo_leku) REFERENCES leky(cislo_leku) ON DELETE CASCADE;
 ALTER TABLE externi_vysetreni ADD CONSTRAINT FK_externi_navstevy FOREIGN KEY (cislo_navstevy) REFERENCES navstevy(cislo_navstevy) ON DELETE CASCADE;
 
--- Ostatní omezení (CHECK, UNIQUE)
+-- Ostatní omezení
 ALTER TABLE pacienti_registrovani ADD CONSTRAINT UQ_cislo_karty UNIQUE (cislo_karty);
-ALTER TABLE pacienti ADD CONSTRAINT CHK_rodne_cislo CHECK ( REGEXP_LIKE ( rodne_cislo, '^[0-9]{6}/?[0-9]{3,4}$' ) );
+ALTER TABLE pacienti ADD CONSTRAINT CHK_rodne_cislo CHECK ( REGEXP_LIKE ( rodne_cislo, '^[0-9]{2}(0[1-9]|1[0-2]|5[1-9]|6[0-2])(0[1-9]|[12][0-9]|3[01])\/?[0-9]{3,4}$' ) );
 ALTER TABLE navstevy ADD CONSTRAINT CHK_typ_navstevy CHECK ( typ_navstevy IN ( 'planovana', 'akutni' ) );
