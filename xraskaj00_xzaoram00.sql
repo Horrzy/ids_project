@@ -250,21 +250,18 @@ ALTER TABLE navstevy ADD CONSTRAINT CHK_typ_navstevy CHECK ( typ_navstevy IN ( '
 
 
 
--- =============================================================================
--- 3. ČÁST – DOTAZY SELECT
--- =============================================================================
 
--- Dotaz 1: Spojení dvou tabulek – pacienti a jejich pojišťovny
+-- SELECT DOTAZY
+
+-- Spojení dvou tabulek – pacienti a jejich pojišťovny
 -- Vypíše jméno, příjmení a název pojišťovny každého pacienta.
--- Slouží například k přehledu pojišťoven registrovaných pacientů.
 SELECT p.jmeno, p.prijmeni, po.nazev AS pojistovna
 FROM pacienti p
 JOIN pojistovny po ON p.cislo_pojistovny = po.cislo_pojistovny;
 
 
--- Dotaz 2: Spojení dvou tabulek – návštěvy a pacienti
+-- Spojení dvou tabulek – návštěvy a pacienti
 -- Vypíše datum, typ návštěvy a jméno pacienta pro každou návštěvu.
--- Slouží k zobrazení přehledu návštěv seřazených dle data.
 SELECT n.cislo_navstevy, n.datum_a_cas, n.typ_navstevy,
        p.jmeno || ' ' || p.prijmeni AS pacient
 FROM navstevy n
@@ -272,9 +269,8 @@ JOIN pacienti p ON n.cislo_pacienta = p.cislo_pacienta
 ORDER BY n.datum_a_cas;
 
 
--- Dotaz 3: Spojení tří tabulek – návštěvy, výkony, a jejich vazba
+-- Spojení tří tabulek – návštěvy, výkony, a jejich vazba
 -- Vypíše datum návštěvy, jméno pacienta a název provedeného výkonu.
--- Slouží k přehledu provedených výkonů během každé návštěvy.
 SELECT n.datum_a_cas, p.jmeno || ' ' || p.prijmeni AS pacient, v.nazev AS vykon
 FROM navstevy n
 JOIN pacienti p ON n.cislo_pacienta = p.cislo_pacienta
@@ -283,9 +279,8 @@ JOIN vykony v ON nv.typ_vykonu = v.typ_vykonu
 ORDER BY n.datum_a_cas;
 
 
--- Dotaz 4: GROUP BY s agregační funkcí – počet návštěv na pacienta
+-- GROUP BY s agregační funkcí – počet návštěv na pacienta
 -- Vypíše celkový počet návštěv pro každého pacienta (jméno + příjmení).
--- Slouží lékaři k přehledu, kteří pacienti navštěvují ordinaci nejčastěji.
 SELECT p.jmeno || ' ' || p.prijmeni AS pacient,
        COUNT(n.cislo_navstevy) AS pocet_navstev
 FROM pacienti p
@@ -294,9 +289,8 @@ GROUP BY p.jmeno, p.prijmeni
 ORDER BY pocet_navstev DESC;
 
 
--- Dotaz 5: GROUP BY s agregační funkcí – počet předepsaných léků na návštěvu
+-- GROUP BY s agregační funkcí – počet předepsaných léků na návštěvu
 -- Vypíše počet předepsaných léků pro každou návštěvu.
--- Slouží k analýze, při kterých návštěvách bylo předepsáno nejvíce léků.
 SELECT n.cislo_navstevy, n.datum_a_cas,
        COUNT(pr.cislo_predpisu) AS pocet_predpisu
 FROM navstevy n
@@ -305,9 +299,8 @@ GROUP BY n.cislo_navstevy, n.datum_a_cas
 ORDER BY pocet_predpisu DESC;
 
 
--- Dotaz 6: Predikát EXISTS – pacienti, kteří mají alespoň jedno očkování
+-- Predikát EXISTS – pacienti, kteří mají alespoň jedno očkování
 -- Vypíše jméno a příjmení pacientů, pro které existuje záznam v tabulce ockovani.
--- Slouží k identifikaci pacientů, kteří byli očkováni.
 SELECT p.jmeno, p.prijmeni
 FROM pacienti p
 WHERE EXISTS (
@@ -317,9 +310,8 @@ WHERE EXISTS (
 );
 
 
--- Dotaz 7: Predikát IN s vnořeným SELECT – pacienti s plánovanou návštěvou
+-- Predikát IN s vnořeným SELECT – pacienti s plánovanou návštěvou
 -- Vypíše jméno a příjmení pacientů, kteří mají nebo měli alespoň jednu plánovanou návštěvu.
--- Slouží sestře k rychlému přehledu, kteří pacienti jsou objednaní (nikoliv akutní).
 SELECT p.jmeno, p.prijmeni
 FROM pacienti p
 WHERE p.cislo_pacienta IN (
