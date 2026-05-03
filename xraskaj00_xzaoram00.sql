@@ -2,6 +2,12 @@
 -- Téma: Ordinace praktického lékaře
 -- Autor: Jan Raška (xraskaj00), Matěj Zaoral (xzaoram00)
 
+-- DROP PROCEDURES A MATERIALIZED VIEWS
+
+DROP PROCEDURE proc_statistika_pacienta;
+DROP PROCEDURE proc_vypis_planovanych_navstev;
+DROP MATERIALIZED VIEW mv_pacienti_statistika;
+
 -- DROP TABLES AND SEQUENCES
 
 DROP TABLE externi_vysetreni CASCADE CONSTRAINTS;
@@ -319,3 +325,201 @@ WHERE p.cislo_pacienta IN (
     FROM navstevy n
     WHERE n.typ_navstevy = 'planovana'
 );
+
+SET SERVEROUTPUT ON;
+
+
+-- Trigger 1: Kontrola věku pacienta při vkládání (datum narození nesmí být v budoucnosti)
+CREATE OR REPLACE TRIGGER trg_kontrola_data_narozeni
+BEFORE INSERT OR UPDATE ON pacienti
+FOR EACH ROW
+BEGIN
+    IF :NEW.datum_narozeni > SYSDATE THEN
+        RAISE_APPLICATION_ERROR(-20001, 'Datum narození nemůže být v budoucnosti!');
+    END IF;
+END;
+/
+
+-- Trigger 2: Kontrola očkování (datum očkování nesmí předcházet datu narození pacienta)
+CREATE OR REPLACE TRIGGER trg_kontrola_ockovani_vek
+BEFORE INSERT OR UPDATE ON ockovani
+FOR EACH ROW
+DECLARE
+    v_datum_narozeni pacienti.datum_narozeni%TYPE;
+BEGIN
+    SELECT datum_narozeni INTO v_datum_narozeni
+    FROM pacienti
+    WHERE cislo_pacienta = :NEW.cislo_pacienta;
+
+    IF :NEW.datum_ockovani < v_datum_narozeni THEN
+        RAISE_APPLICATION_ERROR(-20002, 'Datum očkování nemůže být před datem narození pacienta!');
+    END IF;
+END;
+/
+
+-- Předvedení triggerů:
+BEGIN
+    DBMS_OUTPUT.PUT_LINE('--- TEST TRIGGERŮ ---');
+    -- Test Triggeru 1: Pacient narozený v budoucnosti
+    BEGIN
+        INSERT INTO pacienti (cislo_pacienta, jmeno, prijmeni, rodne_cislo, datum_narozeni, cislo_pojistovny)
+        VALUES (seq_pacienti.NEXTVAL, 'Cestovatel', 'Včase', '991231/9999', SYSDATE + 100, 111);
+    EXCEPTION
+        WHEN OTHERS THEN
+            DBMS_OUTPUT.PUT_LINE('Zachycena chyba z trg_kontrola_data_narozeni: ' || SQLERRM);
+    END;
+
+    -- Test Triggeru 2: Očkování před narozením
+    BEGIN
+        INSERT INTO ockovani (id_ockovani, datum_ockovani, cislo_pacienta, cislo_navstevy, typ_ockovani_id)
+        VALUES (seq_ockovani.NEXTVAL, TO_DATE('1970-01-01', 'YYYY-MM-DD'), 1, 1, 1);
+    EXCEPTION
+        WHEN OTHERS THEN
+            DBMS_OUTPUT.PUT_LINE('Zachycena chyba z trg_kontrola_ockovani_vek: ' || SQLERRM);
+    END;
+END;
+/
+
+-- Procedura 1: Vyhledá statistiky pacienta podle ID a vypíše je
+CREATE OR REPLACE PROCEDURE proc_statistika_pacienta (p_id_pacienta IN INTEGER)
+AS
+    v_jmeno pacienti.jmeno%TYPE;
+    v_prijmeni pacienti.prijmeni%TYPE;
+    v_pocet_navstev INTEGER;
+BEGIN
+    SELECT jmeno, prijmeni INTO v_jmeno, v_prijmeni
+    FROM pacienti
+    WHERE cislo_pacienta = p_id_pacienta;
+
+    SELECT COUNT(*) INTO v_pocet_navstev
+    FROM navstevy
+    WHERE cislo_pacienta = p_id_pacienta;
+
+    DBMS_OUTPUT.PUT_LINE('Pacient ' || v_jmeno || ' ' || v_prijmeni || ' měl celkem ' || v_pocet_navstev || ' návštěv(y).');
+EXCEPTION
+    WHEN NO_DATA_FOUND THEN
+        DBMS_OUTPUT.PUT_LINE('Chyba: Pacient s ID ' || p_id_pacienta || ' neexistuje.');
+    WHEN OTHERS THEN
+        DBMS_OUTPUT.PUT_LINE('Neznámá chyba: ' || SQLERRM);
+END;
+/
+
+-- Procedura 2: Vypíše všechny pacienty, kteří mají plánovanou návštěvu pomocí kurzoru
+CREATE OR REPLACE PROCEDURE proc_vypis_planovanych_navstev
+AS
+    CURSOR c_navstevy IS
+        SELECT p.jmeno, p.prijmeni, n.datum_a_cas
+        FROM pacienti p
+        JOIN navstevy n ON p.cislo_pacienta = n.cislo_pacienta
+        WHERE n.typ_navstevy = 'planovana'
+        ORDER BY n.datum_a_cas;
+        
+    v_zaznam c_navstevy%ROWTYPE;
+BEGIN
+    DBMS_OUTPUT.PUT_LINE('--- Seznam plánovaných návštěv ---');
+    OPEN c_navstevy;
+    LOOP
+        FETCH c_navstevy INTO v_zaznam;
+        EXIT WHEN c_navstevy%NOTFOUND;
+        DBMS_OUTPUT.PUT_LINE('Pacient: ' || v_zaznam.jmeno || ' ' || v_zaznam.prijmeni || ' -> Termín: ' || TO_CHAR(v_zaznam.datum_a_cas, 'YYYY-MM-DD HH24:MI:SS'));
+    END LOOP;
+    CLOSE c_navstevy;
+EXCEPTION
+    WHEN OTHERS THEN
+        DBMS_OUTPUT.PUT_LINE('Chyba při výpisu návštěv: ' || SQLERRM);
+        IF c_navstevy%ISOPEN THEN
+            CLOSE c_navstevy;
+        END IF;
+END;
+/
+
+-- Předvedení procedur:
+BEGIN
+    DBMS_OUTPUT.PUT_LINE('--- TEST PROCEDUR ---');
+    -- Volání s existujícím ID
+    proc_statistika_pacienta(1);
+    -- Volání s neexistujícím ID (test výjimky)
+    proc_statistika_pacienta(999);
+    
+    -- Volání výpisu z kurzoru
+    proc_vypis_planovanych_navstev;
+END;
+/
+
+
+-- EXPLAIN PLAN BEZ INDEXU
+EXPLAIN PLAN FOR
+SELECT n.cislo_navstevy, n.datum_a_cas, COUNT(pr.cislo_predpisu) AS pocet_predpisu
+FROM navstevy n
+LEFT JOIN predpisy pr ON n.cislo_navstevy = pr.cislo_navstevy
+GROUP BY n.cislo_navstevy, n.datum_a_cas;
+
+-- Výpis plánu provedení bez indexu
+SELECT * FROM TABLE(DBMS_XPLAN.DISPLAY);
+
+-- Vytvoření indexu pro urychlení spojení podle cislo_navstevy v tabulce predpisy
+CREATE INDEX idx_predpisy_navsteva ON predpisy(cislo_navstevy);
+
+-- EXPLAIN PLAN S INDEXEM
+EXPLAIN PLAN FOR
+SELECT n.cislo_navstevy, n.datum_a_cas, COUNT(pr.cislo_predpisu) AS pocet_predpisu
+FROM navstevy n
+LEFT JOIN predpisy pr ON n.cislo_navstevy = pr.cislo_navstevy
+GROUP BY n.cislo_navstevy, n.datum_a_cas;
+
+-- Výpis plánu provedení s indexem (zde si na obhajobě všimněte přístupu přes INDEX RANGE SCAN namísto TABLE ACCESS FULL)
+SELECT * FROM TABLE(DBMS_XPLAN.DISPLAY);
+
+
+-- Práva pro druhého člena týmu
+GRANT ALL ON pacienti TO xzaoram00;
+GRANT ALL ON navstevy TO xzaoram00;
+GRANT ALL ON vykony TO xzaoram00;
+GRANT ALL ON navsteva_vykon TO xzaoram00;
+GRANT EXECUTE ON proc_statistika_pacienta TO xzaoram00;
+GRANT EXECUTE ON proc_vypis_planovanych_navstev TO xzaoram00;
+
+-- Materializovaný pohled agregující počty akutních a plánovaných návštěv pacienta.
+-- V zadání se píše, že patří druhému členovi a používá tabulky prvního. 
+-- Zde jej definujeme přímo, jako by skript spouštěl xzaoram00, ale dáváme práva k čtení druhému.
+CREATE MATERIALIZED VIEW mv_pacienti_statistika
+BUILD IMMEDIATE
+REFRESH COMPLETE ON DEMAND
+AS
+SELECT p.cislo_pacienta, p.jmeno, p.prijmeni,
+       SUM(CASE WHEN n.typ_navstevy = 'planovana' THEN 1 ELSE 0 END) AS pocet_planovanych,
+       SUM(CASE WHEN n.typ_navstevy = 'akutni' THEN 1 ELSE 0 END) AS pocet_akutnich
+FROM pacienti p
+LEFT JOIN navstevy n ON p.cislo_pacienta = n.cislo_pacienta
+GROUP BY p.cislo_pacienta, p.jmeno, p.prijmeni;
+
+GRANT SELECT ON mv_pacienti_statistika TO xraskaj00;
+
+-- Demonstrace materializovaného pohledu
+SELECT * FROM mv_pacienti_statistika;
+
+-- Následující dotaz získá informace o aktivitě a nákladech na výkony pacientů.
+-- Používá:
+-- 1. WITH (dočasný pohled 'PacientVykonStat' pro zjištění celkového počtu výkonů na pacienta)
+-- 2. CASE (rozdělení pacientů do logických kategorií na základě jejich aktivity)
+WITH PacientVykonStat AS (
+    SELECT p.cislo_pacienta,
+           p.jmeno,
+           p.prijmeni,
+           COUNT(nv.typ_vykonu) as pocet_vykonu
+    FROM pacienti p
+    LEFT JOIN navstevy n ON p.cislo_pacienta = n.cislo_pacienta
+    LEFT JOIN navsteva_vykon nv ON n.cislo_navstevy = nv.cislo_navstevy
+    GROUP BY p.cislo_pacienta, p.jmeno, p.prijmeni
+)
+SELECT cislo_pacienta,
+       jmeno,
+       prijmeni,
+       pocet_vykonu,
+       CASE
+           WHEN pocet_vykonu = 0 THEN 'Bez zásahů (preventivní režim)'
+           WHEN pocet_vykonu BETWEEN 1 AND 2 THEN 'Běžná péče'
+           ELSE 'Zvýšená zdravotní péče (aktivní pacient)'
+       END AS kategorie_pece
+FROM PacientVykonStat
+ORDER BY pocet_vykonu DESC;
